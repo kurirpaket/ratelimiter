@@ -1,13 +1,12 @@
 package redis
 
-
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/go-redis/redis/v8"
-	"throttle/throttle"
+	"github.com/kurirpaket/throttle"
 	"time"
 )
 
