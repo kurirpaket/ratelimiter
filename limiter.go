@@ -2,62 +2,85 @@ package throttle
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
 
-type Limiter interface {
-	IsAllowed(ctx context.Context, key string) (bool, error)
+const DefaultKey = "default"
+
+// Allower is a contract that needed to implement before using the Throttle.
+type Allower interface {
+	// Allow returns nil if the given context is allowed.
+	Allow(ctx context.Context, key string) error
 }
 
-type rateLimiter struct {
-	*Rate
-	store Store
+// AllowFunc is an adapter for creating Allower from function.
+type AllowFunc func(ctx context.Context, key string) error
+
+// Allow implements the Allower interface.
+func (f AllowFunc) Allow(ctx context.Context, key string) error {
+	return f(ctx, key)
 }
 
-func NewRateLimiter(defaultRate Rate, store Store) Limiter {
-	rate, err := store.GetRate(context.Background(), "default")
+// limiter knows how to limit your process.
+type limiter struct {
+	rate    *Rate
+	storage RateStatCounter
+}
+
+// NewRateLimiter creates a new rate limiter that satisfied the Allower interface.
+func NewRateLimiter(defaultRate *Rate, storage RateStatCounter) *limiter {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	rate, err := storage.Rate(ctx, DefaultKey)
 	if err != nil {
-		go store.SetRate(context.Background(), "default", defaultRate)
-		rate = &defaultRate
+		_ = storage.SetRate(ctx, DefaultKey, defaultRate)
+		rate = defaultRate
 	}
 
-	rl := rateLimiter{rate, store}
-
-	return rl
+	return &limiter{
+		rate:    rate,
+		storage: storage,
+	}
 }
 
-func (r rateLimiter) IsAllowed(ctx context.Context, key string) (bool, error) {
-	currentStat, err := r.store.GetStat(ctx, key)
+// Allow implements the Allower interface.
+func (l *limiter) Allow(ctx context.Context, key string) error {
+	stat, err := l.storage.Stat(ctx, key)
 	if err != nil {
-		err = r.store.SetStat(ctx, key, Stat{
+		stat := Stat{
 			TotalHit: 1,
 			ResetAt:  time.Now(),
-		})
-		if err != nil {
-			return false, err
 		}
 
-		return true, nil
+		if err := l.storage.SetStat(ctx, key, &stat); err != nil {
+			return fmt.Errorf("%w: setting stat", err)
+		}
+
+		return nil
 	}
 
-	rate, err := r.store.GetRate(ctx, key)
+	rate, err := l.storage.Rate(ctx, key)
 	if err != nil {
-		rate = r.Rate
+		rate = l.rate
 	}
 
-	if time.Since(currentStat.ResetAt) > rate.Duration {
-		_ = r.store.Reset(ctx, key)
-		return true, nil
+	if time.Since(stat.ResetAt) > rate.Duration {
+		if err := l.storage.Reset(ctx, key); err != nil {
+			return fmt.Errorf("%w: reseting counter", err)
+		}
+
+		return nil
 	}
 
-	if currentStat.TotalHit+1 > rate.MaxRequest {
-		return false, nil
+	if stat.TotalHit+1 > rate.MaxRequest {
+		return ErrLimitExceeded
 	}
 
-	err = r.store.Increment(ctx, key)
-	if err != nil {
-		return false, err
+	if err := l.storage.Increment(ctx, key); err != nil {
+		return fmt.Errorf("%w: incrementing counter", err)
 	}
 
-	return true, nil
+	return nil
 }
