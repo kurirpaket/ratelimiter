@@ -1,4 +1,4 @@
-package throttle
+package ratelimiter
 
 import "time"
 

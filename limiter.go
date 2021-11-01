@@ -1,4 +1,4 @@
-package throttle
+package ratelimiter
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 
 const DefaultKey = "default"
 
-// Allower is a contract that needed to implement before using the Throttle.
+// Allower is a contract that needed to implement before using the RateLimiter.
 type Allower interface {
 	// Allow returns nil if the given context is allowed.
 	Allow(ctx context.Context, key string) error
