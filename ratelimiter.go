@@ -1,4 +1,4 @@
-package throttle
+package ratelimiter
 
 import (
 	"context"
@@ -7,9 +7,9 @@ import (
 
 var (
 	// ErrMissingKey is an error that occurred when key is missing from context.
-	ErrMissingKey = errors.New("throttle: missing key from header")
+	ErrMissingKey = errors.New("ratelimiter: missing key from header")
 	// ErrLimitExceeded is an error that occurred when rate limit is exceeded.
-	ErrLimitExceeded = errors.New("throttle: limit exceeded")
+	ErrLimitExceeded = errors.New("ratelimiter: limit exceeded")
 )
 
 // ctxType is a type for internal context.
@@ -29,18 +29,18 @@ func FromContext(ctx context.Context) (string, bool) {
 	return s, ok
 }
 
-// Throttle is throttle.
-type Throttle struct {
+// RateLimiter is rate limiter.
+type RateLimiter struct {
 	a Allower
 }
 
-// New creates a new Throttle.
-func New(a Allower) *Throttle {
-	return &Throttle{a: a}
+// New creates a new RateLimiter.
+func New(a Allower) *RateLimiter {
+	return &RateLimiter{a: a}
 }
 
 // HandleContext checks if the given context is allowed.
-func (t *Throttle) HandleContext(ctx context.Context) error {
+func (rl *RateLimiter) HandleContext(ctx context.Context) error {
 	key, ok := FromContext(ctx)
 	if !ok {
 		return ErrMissingKey
@@ -48,7 +48,7 @@ func (t *Throttle) HandleContext(ctx context.Context) error {
 
 	errChan := make(chan error, 1)
 	go func() {
-		errChan <- t.a.Allow(ctx, key)
+		errChan <- rl.a.Allow(ctx, key)
 	}()
 
 	select {
